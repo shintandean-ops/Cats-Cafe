@@ -1,9 +1,6 @@
-// Whiskers & Coffee server: serves the website and sends booking tickets by email.
-// Email is sent with Brevo's HTTP API (free plan, works on Render where SMTP ports are blocked).
-// Required environment variables (set them in Render > Environment):
-//   BREVO_API_KEY  - from Brevo > SMTP & API > API Keys
-//   SENDER_EMAIL   - an email address you verified in Brevo > Senders
-//   SENDER_NAME    - optional, defaults to "Whiskers & Coffee"
+// Whiskers & Coffee server: serves the website and sends booking tickets by email via Resend.
+// Required environment variable in Render > Environment:
+//   RESEND_API_KEY - from Resend > API Keys (starts with re_)
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,11 +10,10 @@ const app = express();
 app.use(express.json({ limit: "20kb" }));
 app.use(express.static(__dirname, { extensions: ["html"] }));
 
-const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "'" }[c]));
 const clip = (v, n) => String(v ?? "").trim().slice(0, n);
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-// Very small rate limit: max 5 emails per IP every 10 minutes.
 const hits = new Map();
 function limited(ip) {
   const now = Date.now();
@@ -28,8 +24,8 @@ function limited(ip) {
 }
 
 app.post("/api/send-ticket", async (req, res) => {
-  const { BREVO_API_KEY, SENDER_EMAIL, SENDER_NAME = "Whiskers & Coffee" } = process.env;
-  if (!BREVO_API_KEY || !SENDER_EMAIL) return res.status(503).json({ error: "Email is not configured on the server." });
+  const { RESEND_API_KEY, SENDER_EMAIL = "Whiskers & Coffee <onboarding@resend.dev>" } = process.env;
+  if (!RESEND_API_KEY) return res.status(503).json({ error: "Email is not configured on the server." });
   if (limited(req.ip)) return res.status(429).json({ error: "Too many emails. Please try again later." });
 
   const b = req.body || {};
@@ -51,18 +47,18 @@ app.post("/api/send-ticket", async (req, res) => {
     <p style="margin-bottom:0">See you and the cats soon! 🐾</p></div>`;
 
   try {
-    const r = await fetch("https://api.brevo.com/v3/smtp/email", {
+    const r = await fetch("https://resend.com", {
       method: "POST",
-      headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        sender: { name: SENDER_NAME, email: SENDER_EMAIL },
-        to: [{ email: t.email, name: t.name }],
+        from: SENDER_EMAIL,
+        to: [t.email],
         subject: `Whiskers & Coffee booking ticket ${t.reference}`,
-        htmlContent: html,
+        html,
       }),
     });
     if (!r.ok) {
-      console.error("Brevo error", r.status, await r.text());
+      console.error("Resend error", r.status, await r.text());
       return res.status(502).json({ error: "The email service rejected the request." });
     }
     res.json({ ok: true });
