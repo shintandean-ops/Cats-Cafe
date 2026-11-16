@@ -1,6 +1,9 @@
-// Whiskers & Coffee server: serves the website and sends booking tickets by email via Resend.
-// Required environment variable in Render > Environment:
-//   RESEND_API_KEY - from Resend > API Keys (starts with re_)
+// Whiskers & Coffee server: serves the website and sends booking tickets by email.
+// Email is sent with Brevo's HTTP API (free plan, works on Render where SMTP ports are blocked).
+// Required environment variables (set them in Render > Environment):
+//   BREVO_API_KEY  - from Brevo > SMTP & API > API Keys
+//   SENDER_EMAIL   - an email address you verified in Brevo > Senders
+//   SENDER_NAME    - optional, defaults to "Whiskers & Coffee"
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,8 +27,8 @@ function limited(ip) {
 }
 
 app.post("/api/send-ticket", async (req, res) => {
-  const { RESEND_API_KEY, SENDER_EMAIL = "Whiskers & Coffee <onboarding@resend.dev>" } = process.env;
-  if (!RESEND_API_KEY) return res.status(503).json({ error: "Email is not configured on the server." });
+  const { BREVO_API_KEY, SENDER_EMAIL, SENDER_NAME = "Whiskers & Coffee" } = process.env;
+  if (!BREVO_API_KEY || !SENDER_EMAIL) return res.status(503).json({ error: "Email is not configured on the server." });
   if (limited(req.ip)) return res.status(429).json({ error: "Too many emails. Please try again later." });
 
   const b = req.body || {};
@@ -47,18 +50,18 @@ app.post("/api/send-ticket", async (req, res) => {
     <p style="margin-bottom:0">See you and the cats soon! 🐾</p></div>`;
 
   try {
-      const r = await fetch("https://resend.com", {
+    const r = await fetch("https://brevo.com", {
       method: "POST",
-      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+      headers: { "api-key": BREVO_API_KEY, "Content-Type": "application/json", Accept: "application/json" },
       body: JSON.stringify({
-        from: SENDER_EMAIL,
-        to: [t.email],
+        sender: { name: SENDER_NAME, email: SENDER_EMAIL },
+        to: [{ email: t.email, name: t.name }],
         subject: `Whiskers & Coffee booking ticket ${t.reference}`,
-        html,
+        htmlContent: html,
       }),
     });
     if (!r.ok) {
-      console.error("Resend error", r.status, await r.text());
+      console.error("Brevo error", r.status, await r.text());
       return res.status(502).json({ error: "The email service rejected the request." });
     }
     res.json({ ok: true });
