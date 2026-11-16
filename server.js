@@ -47,7 +47,7 @@ app.post("/api/send-ticket", async (req, res) => {
     <p style="margin-bottom:0">See you and the cats soon! 🐾</p></div>`;
 
   try {
-    const r = await fetch("https://resend.com", {
+      const r = await fetch("https://resend.com", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
