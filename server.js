@@ -47,7 +47,7 @@ app.post("/api/send-ticket", async (req, res) => {
     <p style="margin-bottom:0">See you and the cats soon! 🐾</p></div>`;
 
   try {
-    const r = await fetch("https://" + "api." + "resend.com" + "/emails", {
+    const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -58,9 +58,8 @@ app.post("/api/send-ticket", async (req, res) => {
       }),
     });
     if (!r.ok) {
-      const errText = await r.text();
-      console.error("Resend error", r.status, errText);
-      return res.status(502).json({ error: "Resend rejected: " + errText });
+      console.error("Resend error", r.status, await r.text());
+      return res.status(502).json({ error: "The email service rejected the request." });
     }
     res.json({ ok: true });
   } catch (err) {
@@ -68,6 +67,95 @@ app.post("/api/send-ticket", async (req, res) => {
     res.status(500).json({ error: "Could not send the email." });
   }
 });
+
+app.post("/api/contact", async (req, res) => {
+  const {
+    RESEND_API_KEY,
+    SENDER_EMAIL = "Whiskers & Coffee <onboarding@resend.dev>",
+    CONTACT_EMAIL
+  } = process.env;
+
+  if (!RESEND_API_KEY || !CONTACT_EMAIL) {
+    return res.status(503).json({
+      error: "Contact email is not configured on the server."
+    });
+  }
+
+  if (limited(req.ip)) {
+    return res.status(429).json({
+      error: "Too many messages. Please try again later."
+    });
+  }
+
+  const b = req.body || {};
+
+  const contact = {
+    name: clip(b.name, 100),
+    email: clip(b.email, 255),
+    subject: clip(b.subject, 100),
+    message: clip(b.message, 2000)
+  };
+
+  if (
+    !contact.name ||
+    !EMAIL_RE.test(contact.email) ||
+    !contact.subject ||
+    !contact.message
+  ) {
+    return res.status(400).json({
+      error: "Please complete all fields with a valid email address."
+    });
+  }
+
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:auto;padding:24px;color:#3b2a20">
+      <h2>New Contact Us Message</h2>
+      <p><strong>Name:</strong> ${esc(contact.name)}</p>
+      <p><strong>Email:</strong> ${esc(contact.email)}</p>
+      <p><strong>Subject:</strong> ${esc(contact.subject)}</p>
+      <hr>
+      <h3>Message</h3>
+      <p style="white-space:pre-wrap">${esc(contact.message)}</p>
+    </div>
+  `;
+
+  try {
+    const r = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${RESEND_API_KEY}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        from: SENDER_EMAIL,
+        to: [CONTACT_EMAIL],
+        reply_to: contact.email,
+        subject: `Website Contact: ${contact.subject}`,
+        html
+      })
+    });
+
+    if (!r.ok) {
+      console.error("Resend contact error", r.status, await r.text());
+      return res.status(502).json({
+        error: "The email service could not send your message."
+      });
+    }
+
+    res.json({
+      ok: true,
+      message: "Your message has been sent successfully!"
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({
+      error: "Could not send your message."
+    });
+  }
+});
+
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Whiskers & Coffee running on http://localhost:${PORT}`));
