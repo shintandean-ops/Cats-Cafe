@@ -36,7 +36,8 @@
 <div class="container contact-grid">
 <div class="panel">
 <h2>Enquiry Form</h2>
-<p class="note">This is a project demo. Sending the form creates a local reference in this browser; no email is sent.</p>
+<p class="note">Have a question? Send us a message and our team will get back to you.</p>
+<p id="contact-status" role="status" aria-live="polite"></p>
 <form aria-label="General enquiry form" id="contact-form">
 <button class="btn btn-outline demo-fill" id="contact-demo-fill" type="button">Demo: Auto-fill Sample Enquiry</button>
 <p class="note" id="contact-demo-message">Fills sample details so you can preview the enquiry form.</p>
@@ -45,7 +46,7 @@
 <label for="email">Email</label>
 <input id="email" maxlength="255" name="email" placeholder="you@example.com" required="" type="email"/>
 <label for="subject">Subject</label>
-<select id="subject" name="subject">
+<select id="subject" name="subject" required></select>
 <option>General question</option>
 <option>Birthday or event enquiry</option>
 <option>Cat adoption</option>
@@ -123,38 +124,75 @@
 </footer>
 <script>
 (() => {
-  const button = document.getElementById('contact-demo-fill');
-  if (!button) return;
-  button.addEventListener('click', () => {
-    const sample = [
-      ['name', 'Jamie Tan'],
-      ['email', 'jamie.demo@example.com'],
-      ['subject', 'Birthday or event enquiry'],
-      ['message', 'Hello! I would like to ask about booking a small birthday gathering at Whiskers & Coffee. Thank you!']
-    ];
-    const missing = [];
-    sample.forEach(([id, value]) => {
-      const field = document.getElementById(id);
-      if (!field) { missing.push(id); return; }
-      field.value = value;
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-      field.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    const message = document.getElementById('contact-demo-message');
-    if (message) message.textContent = missing.length
-      ? `Could not find these fields: ${missing.join(', ')}.`
-      : 'Sample enquiry filled in. Please review and edit it before sending.';
+  const form = document.getElementById('contact-form');
+  const status = document.getElementById('contact-status');
+  const demoButton = document.getElementById('contact-demo-fill');
+
+  if (!form) return;
+
+  // Demo button: fills in sample information
+  demoButton?.addEventListener('click', () => {
+    document.getElementById('name').value = 'Jamie Tan';
+    document.getElementById('email').value = 'jamie.demo@example.com';
+    document.getElementById('subject').value =
+      'Birthday or event enquiry';
+    document.getElementById('message').value =
+      'Hello! I would like to ask about booking a birthday gathering at Whiskers & Coffee. Thank you!';
+
+    if (status) status.textContent =
+      'Sample details filled in. Please review before sending.';
   });
-  const contactForm = document.getElementById('contact-form');
-  contactForm?.addEventListener('submit', event => {
+
+  // Send enquiry to the backend
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
-    if (!contactForm.reportValidity()) return;
-    const data = new FormData(contactForm);
-    const subject = `[Website enquiry] ${String(data.get('subject') || 'General question')}`;
-    const body = `Name: ${data.get('name')}\nEmail: ${data.get('email')}\n\n${data.get('message')}`;
-    window.location.href = `mailto:hello@whiskersandcoffee.example?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    const note = document.getElementById('contact-demo-message');
-    if (note) note.textContent = 'Your email app should open with this message prepared. Please press Send there. No message is sent automatically.';
+
+    if (!form.reportValidity()) return;
+
+    const submitButton =
+      form.querySelector('button[type="submit"]');
+
+    const originalText = submitButton.textContent;
+
+    submitButton.disabled = true;
+    submitButton.textContent = 'Sending...';
+
+    if (status) status.textContent = '';
+
+    try {
+      const formData = new FormData(form);
+
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: formData.get('name'),
+          email: formData.get('email'),
+          subject: formData.get('subject'),
+          message: formData.get('message')
+        })
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.message || 'Unable to send your message.');
+      }
+
+      status.textContent =
+        'Thank you! Your message has been sent successfully.';
+
+      form.reset();
+
+    } catch (error) {
+      status.textContent =
+        error.message || 'Something went wrong. Please try again.';
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = originalText;
+    }
   });
 })();
 </script>
